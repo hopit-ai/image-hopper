@@ -1,0 +1,8 @@
+Image Hopper
+
+This release uses the Qwen/Qwen3.5-9B base model at the revision recorded in
+RELEASE-MANIFEST.json. The base model is made available under the Apache
+License, Version 2.0. Its weights are not redistributed in this bundle.
+
+The Image Hopper server code and calibration artifact are made available under
+the Apache License, Version 2.0.

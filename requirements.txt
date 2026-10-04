@@ -1,0 +1,18 @@
+# Direct dependencies at the exact versions of the evaluated image (Python 3.12, Linux x86_64, CUDA 12.8).
+# requirements.lock is the complete freeze.
+torch==2.8.0
+torchvision==0.23.0
+transformers==5.17.0
+tokenizers==0.23.2
+safetensors==0.8.0
+accelerate==1.15.0
+huggingface_hub==1.33.0
+hf-xet==1.6.0
+pillow==12.3.0
+numpy==2.5.3
+flash-linear-attention==0.5.2
+fla-core==0.5.2
+causal-conv1d @ https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.7.0/causal_conv1d-1.7.0%2Bcu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl#sha256=a1fcd5d022b67ddfc9e1c291f890004c1c081a03d66b532f6eebe31219168e0e
+triton==3.4.0
+einops==0.8.2
+peft==0.21.0

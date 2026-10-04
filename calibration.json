@@ -1,0 +1,39 @@
+{
+  "adapter_sha256": "1e87a9966f77622d9b70b874364adc7ac1990b78735b5e08168d68106715d341",
+  "artifact_sha256": "fc29b120cf2ac00d1917c3712fcd2293b5be3c4746de7d4640b41c3cce251501",
+  "base": {
+    "repo": "Qwen/Qwen3.5-9B",
+    "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+  },
+  "global_temperature": 1.474397718906407,
+  "image_route": "native",
+  "image_route_config_sha256": "ba61089ca8f811596a21354e679df307d8ad73f5593e7bd904e581d36c1fcb1c",
+  "regularization": 8.0,
+  "route_type_counts": {
+    "default": {
+      "4-option": 233,
+      "5-marker": 114,
+      "yes/no": 253
+    },
+    "screen_geometry": {
+      "4-option": 101,
+      "5-marker": 230,
+      "yes/no": 0
+    }
+  },
+  "route_type_temperatures": {
+    "default": {
+      "4-option": 1.2338173243557795,
+      "5-marker": 1.976517229898893,
+      "yes/no": 1.3352577388514966
+    },
+    "screen_geometry": {
+      "4-option": 3.1395652047002547,
+      "5-marker": 1.3292399584473866,
+      "yes/no": 0.6572106043305197
+    }
+  },
+  "rules_sha256": "dabf0df7a787f305d272b061b6e0fe01fde605c7c8ddbca2c3da9e2e162e5c75",
+  "rules_version": "router-rules/v1",
+  "version": "image-jev/router-calibration/v1"
+}
