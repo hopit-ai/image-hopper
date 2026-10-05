@@ -228,16 +228,134 @@ class RoutedCalibration:
         return self.route_type_temperatures[route_name].get(bucket, self.global_temperature)
 
 
+_ROUTED_V2_CALIBRATION_FIELDS = {
+    "adapter_sha256_by_route", "artifact_sha256", "base", "image_route",
+    "image_route_config_sha256", "regularization", "route_global_temperatures",
+    "route_type_counts", "route_type_temperatures", "rules_sha256", "rules_version",
+    "sources", "version",
+}
+ROUTED_V2_CALIBRATION_VERSION = "image-jev/router-calibration/v2"
+
+
+def _sha256_text(value: Any) -> bool:
+    return (isinstance(value, str) and len(value) == 64
+            and all(char in "0123456789abcdef" for char in value))
+
+
+@dataclass(frozen=True)
+class RoutedCalibrationV2:
+    """Serving view of ``image-jev/router-calibration/v2`` (one adapter per route)."""
+
+    route_global_temperatures: Mapping[str, float]
+    route_type_temperatures: Mapping[str, Mapping[str, float]]
+    artifact_sha256: str
+    identity_sha256: str
+    adapter_sha256_by_route: Mapping[str, str]
+    base: Mapping[str, str]
+    rules_sha256: str
+
+    @classmethod
+    def from_artifact(
+        cls, value: Mapping[str, Any], *,
+        adapter_sha256_by_route: Mapping[str, str] | None = None,
+        base: Mapping[str, str] | None = None,
+    ) -> "RoutedCalibrationV2":
+        if not isinstance(value, Mapping) or set(value) != _ROUTED_V2_CALIBRATION_FIELDS:
+            raise ValueError("routed calibration v2 artifact fields differ")
+        body = {key: item for key, item in value.items() if key != "artifact_sha256"}
+        if value["artifact_sha256"] != hashlib.sha256(_compact(body)).hexdigest():
+            raise ValueError("routed calibration artifact hash differs")
+        if value["version"] != ROUTED_V2_CALIBRATION_VERSION:
+            raise ValueError("routed calibration artifact version differs")
+        if value["rules_version"] != router.RULES_VERSION \
+                or value["rules_sha256"] != router.RULES_SHA256:
+            raise ValueError("routed calibration rules binding differs")
+        if value["image_route"] != IMAGE_ROUTE \
+                or value["image_route_config_sha256"] != vision.IMAGE_ROUTE_CONFIG_SHA256[IMAGE_ROUTE]:
+            raise ValueError("routed calibration image-route binding differs")
+        hashes = value["adapter_sha256_by_route"]
+        if (not isinstance(hashes, Mapping) or set(hashes) != set(router.ROUTES)
+                or not all(_sha256_text(hashes[name]) for name in router.ROUTES)):
+            raise ValueError("routed calibration adapter hashes are invalid")
+        if adapter_sha256_by_route is not None and dict(hashes) != dict(adapter_sha256_by_route):
+            raise ValueError("routed calibration adapter binding differs")
+        if not isinstance(value["base"], Mapping) or set(value["base"]) != {"repo", "revision"}:
+            raise ValueError("routed calibration base pin differs")
+        if base is not None and value["base"] != dict(base):
+            raise ValueError("routed calibration base binding differs")
+        globals_ = value["route_global_temperatures"]
+        route_temperatures = value["route_type_temperatures"]
+        route_counts = value["route_type_counts"]
+        for name, mapping in (("global", globals_), ("temperature", route_temperatures),
+                              ("count", route_counts), ("source", value["sources"])):
+            if not isinstance(mapping, Mapping) or set(mapping) != set(router.ROUTES):
+                raise ValueError(f"routed calibration {name} routes differ")
+        checked = {}
+        for route_name in router.ROUTES:
+            values = route_temperatures[route_name]
+            counts = route_counts[route_name]
+            if (
+                not isinstance(values, Mapping)
+                or set(values) != set(TYPE_BUCKET_BY_OPTION_COUNT.values())
+                or not isinstance(counts, Mapping)
+                or set(counts) != set(TYPE_BUCKET_BY_OPTION_COUNT.values())
+            ):
+                raise ValueError("routed calibration temperatures must be objects")
+            if any(
+                isinstance(count, bool) or not isinstance(count, int) or count < 0
+                for count in counts.values()
+            ):
+                raise ValueError("routed calibration counts are invalid")
+            checked[route_name] = {
+                str(kind): _temperature(item, f"route_type_temperatures[{route_name}][{kind}]")
+                for kind, item in values.items()
+            }
+        return cls(
+            route_global_temperatures={
+                name: _temperature(globals_[name], f"route_global_temperatures[{name}]")
+                for name in router.ROUTES
+            },
+            route_type_temperatures=checked,
+            artifact_sha256=str(value["artifact_sha256"]),
+            identity_sha256=hashlib.sha256(_compact(dict(value))).hexdigest(),
+            adapter_sha256_by_route=dict(hashes), base=dict(value["base"]),
+            rules_sha256=str(value["rules_sha256"]),
+        )
+
+    def temperature(self, n_options: int, route_name: str) -> float:
+        if route_name not in router.ROUTES:
+            raise ValueError("unknown routed calibration route")
+        bucket = TYPE_BUCKET_BY_OPTION_COUNT.get(int(n_options))
+        if bucket is None:
+            return self.route_global_temperatures[route_name]
+        return self.route_type_temperatures[route_name].get(
+            bucket, self.route_global_temperatures[route_name])
+
+
+ROUTED_CALIBRATIONS = (RoutedCalibration, RoutedCalibrationV2)
+
+
 def serving_calibration_from_artifact(
     value: Mapping[str, Any], *, checkpoint_sha256: str | None = "",
     adapter_sha256: str | None = None, base: Mapping[str, str] | None = None,
-) -> Calibration | RoutedCalibration:
+    adapter_sha256_by_route: Mapping[str, str] | None = None,
+) -> Calibration | RoutedCalibration | RoutedCalibrationV2:
     if not isinstance(value, Mapping):
         raise ValueError("calibration artifact must be an object")
     if value.get("version") == "image-jev/router-calibration/v1":
+        if adapter_sha256_by_route is not None:
+            raise ValueError("router-calibration/v1 binds one adapter, not one per route")
         return RoutedCalibration.from_artifact(
             value, adapter_sha256=adapter_sha256, base=base
         )
+    if value.get("version") == ROUTED_V2_CALIBRATION_VERSION:
+        if adapter_sha256 is not None:
+            raise ValueError("router-calibration/v2 binds one adapter per route")
+        return RoutedCalibrationV2.from_artifact(
+            value, adapter_sha256_by_route=adapter_sha256_by_route, base=base
+        )
+    if adapter_sha256_by_route is not None:
+        raise ValueError("single-route calibration cannot bind route adapters")
     return Calibration.from_artifact(value, checkpoint_sha256=checkpoint_sha256)
 
 
@@ -353,13 +471,29 @@ def _length(value: Any) -> int:
 class Predictor:
     """One prefill per question; calibrated option probabilities in the board's shape."""
 
-    def __init__(self, model, processor, calibration: Calibration | RoutedCalibration, *, model_name: str,
+    def __init__(self, model, processor, calibration: Calibration | RoutedCalibration | RoutedCalibrationV2, *, model_name: str,
                  context_policy: str = "prepend", max_input_tokens: int | None = None,
                  inference_context: Callable[[], Any] | None = None,
                  adapter_context: Callable[[str], Any] | None = None,
-                 synchronize: Callable[[], Any] | None = None, forward_call=None) -> None:
+                 synchronize: Callable[[], Any] | None = None, forward_call=None,
+                 logits_fn: Callable[..., Any] | None = None,
+                 readout_fn: Callable[..., list[float]] | None = None,
+                 image_token_cap: int | None = None,
+                 image_token_cap_default: int | None = None) -> None:
         if context_policy not in CONTEXT_POLICIES:
             raise ValueError(f"context_policy must be one of {CONTEXT_POLICIES}")
+        # Optional native-route image-token cap (``image_token_cap=N`` serving option); None keeps
+        # the processor's own maximum, i.e. the published behaviour.
+        self.image_token_cap = (None if image_token_cap is None
+                                else vision.validate_image_token_cap(image_token_cap))
+        # Route-conditioned variant (``image_token_cap_default=N``): the cap applies only when the
+        # question's text rule (router-rules/v1) routes it to ``default``; screen_geometry stays
+        # native.  Decided on the text route even under ``route_override``.
+        self.image_token_cap_default = (
+            None if image_token_cap_default is None
+            else vision.validate_image_token_cap(image_token_cap_default))
+        if self.image_token_cap is not None and self.image_token_cap_default is not None:
+            raise ValueError("image_token_cap and image_token_cap_default are alternatives")
         self.model, self.processor, self.calibration = model, processor, calibration
         self.model_name = model_name
         self.context_policy = context_policy
@@ -368,18 +502,28 @@ class Predictor:
         self._adapter_context = adapter_context
         self._synchronize = synchronize
         self._forward_call = forward_call
+        # Optional serving fast paths (``release.fastpath``); None keeps the published path.
+        self._logits_fn = logits_fn
+        self._readout_fn = readout_fn
         self._cache = NativeCache(processor)
         try:
             self.device = next(model.parameters()).device
         except (StopIteration, AttributeError):
             self.device = None
 
-    def _read(self, images: Sequence, question: Question, *, loaded_images=None, timer=None) -> tuple[list[float], int]:
+    def _read(self, images: Sequence, question: Question, *, loaded_images=None, timer=None,
+              route_override: str | None = None) -> tuple[list[float], int]:
         example = {"question": question.instructions, "options": list(question.options),
                    "images": list(images)}
+        cap = {} if self.image_token_cap is None else {"image_token_cap": self.image_token_cap}
+        if self.image_token_cap_default is not None and router.route(
+                question.route_instructions or question.instructions,
+                question.options) == router.DEFAULT:
+            cap = {"image_token_cap": self.image_token_cap_default}
         try:
             prepared = vision.prepare_native(example, self.processor, loaded_images=loaded_images,
-                                             cache=self._cache, timer=timer, device=self.device)
+                                             cache=self._cache, timer=timer, device=self.device,
+                                             **cap)
         except (TypeError, ValueError) as error:
             raise RequestError(str(error)) from error
         tokens = _length(prepared.input_ids)
@@ -390,8 +534,8 @@ class Predictor:
             )
         with timer.phase("route_adapter_switch"):
             route_name = None
-            if isinstance(self.calibration, RoutedCalibration):
-                route_name = router.route(
+            if isinstance(self.calibration, ROUTED_CALIBRATIONS):
+                route_name = route_override or router.route(
                     question.route_instructions or question.instructions, question.options
                 )
                 temperature = self.calibration.temperature(len(question.options), route_name)
@@ -406,11 +550,18 @@ class Predictor:
         )
         with route_context:
             with inference_context:
-                logits = vision.last_position_logits(
-                    self.model, prepared, timer=timer, forward_call=self._forward_call)
+                if self._logits_fn is None:
+                    logits = vision.last_position_logits(
+                        self.model, prepared, timer=timer, forward_call=self._forward_call)
+                else:
+                    logits = self._logits_fn(self.model, prepared, timer=timer, route=route_name)
                 with timer.phase("readout_calibration"):
-                    probabilities = vision.option_probs(
-                        logits, prepared.letter_token_ids, temperature=temperature)
+                    if self._readout_fn is None:
+                        probabilities = vision.option_probs(
+                            logits, prepared.letter_token_ids, temperature=temperature)
+                    else:
+                        probabilities = self._readout_fn(
+                            logits, prepared.letter_token_ids, temperature)
         with timer.phase("readout_calibration"):
             total = math.fsum(probabilities)
             return [value / total for value in probabilities], tokens
@@ -421,7 +572,16 @@ class Predictor:
             images, questions = parse_request(body, context_policy=self.context_policy)
         return self.predict_questions(images, questions, timer=timer)
 
-    def predict_questions(self, images, questions, *, timer=None) -> dict[str, Any]:
+    def predict_questions(self, images, questions, *, timer=None,
+                          route_override: str | None = None) -> dict[str, Any]:
+        """Answer parsed questions.  ``route_override`` (evaluation only; never set by the
+        server) serves a routed system on one named route, e.g. ``default`` = the frozen base
+        with its default-route temperatures."""
+        if route_override is not None:
+            if route_override not in router.ROUTES:
+                raise ValueError(f"route_override must be one of {router.ROUTES}")
+            if not isinstance(self.calibration, ROUTED_CALIBRATIONS):
+                raise ValueError("route_override needs a routed system")
         timer = timer or PhaseTimer()
         with timer.phase("decode_load"):
             try:
@@ -431,7 +591,8 @@ class Predictor:
                 raise RequestError(str(error)) from error
         answers, input_tokens = {}, 0
         for question in questions:
-            probabilities, tokens = self._read(images, question, loaded_images=loaded, timer=timer)
+            probabilities, tokens = self._read(images, question, loaded_images=loaded, timer=timer,
+                                               route_override=route_override)
             with timer.phase("response_build"):
                 input_tokens += tokens
                 names = [option["name"] for option in question.options]
@@ -507,9 +668,21 @@ def load_predictor(*, calibration_path: str | Path, model_name: str,
                    adapter_path: str | Path | None = None,
                    base_hashes_path: str | Path | None = None, device: str = "cuda",
                    context_policy: str = "prepend", max_input_tokens: int | None = None,
-                   allow_slow_path: bool = False) -> tuple[Predictor, dict[str, Any]]:
-    """Load the pinned frozen base in bf16 and return the predictor and its provenance."""
+                   allow_slow_path: bool = False, adapters_path: str | Path | None = None,
+                   serving_form: str = "U",
+                   adapter_work_dir: str | Path | None = None,
+                   serving_options: Sequence[str] | str | None = None,
+                   ) -> tuple[Predictor, dict[str, Any]]:
+    """Load the pinned frozen base in bf16 and return the predictor and its provenance.
+
+    ``adapters_path`` (router v3) is a directory holding ``default/`` and
+    ``screen_geometry/`` adapters bound by a ``router-calibration/v2`` artifact;
+    ``serving_form`` selects form U (both attached) or M (merged default).
+    ``serving_options`` (``release.fastpath``) are off by default; any option is recorded in
+    the provenance and none changes weights or calibration.
+    """
     import platform
+    import sys
 
     import torch
     import transformers
@@ -518,19 +691,35 @@ def load_predictor(*, calibration_path: str | Path, model_name: str,
 
     if not allow_slow_path:
         check_fast_path()
+    if adapters_path is not None and adapter_path is not None:
+        raise ValueError("pass either one adapter or a per-route adapters directory, not both")
     adapter = None if adapter_path is None else Path(adapter_path)
     adapter_sha256 = "" if adapter is None else tree_sha256(adapter)
+    route_dirs = None
+    if adapters_path is not None:
+        route_dirs = {name: Path(adapters_path) / name for name in router.ROUTES}
     try:
         calibration_value = json.loads(Path(calibration_path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"cannot load calibration {calibration_path}: {error}") from error
     base_pin = {"repo": BASE_REPO, "revision": BASE_REVISION}
-    calibration = serving_calibration_from_artifact(
-        calibration_value, checkpoint_sha256=adapter_sha256,
-        adapter_sha256=adapter_sha256 or None, base=base_pin,
-    )
-    routed = isinstance(calibration, RoutedCalibration)
-    if routed and adapter is None:
+    if route_dirs is not None:
+        route_hashes = {name: tree_sha256(path) for name, path in route_dirs.items()}
+        calibration = serving_calibration_from_artifact(
+            calibration_value, base=base_pin, adapter_sha256_by_route=route_hashes,
+        )
+        if not isinstance(calibration, RoutedCalibrationV2):
+            raise ValueError("per-route adapters require router-calibration/v2")
+    else:
+        route_hashes = None
+        calibration = serving_calibration_from_artifact(
+            calibration_value, checkpoint_sha256=adapter_sha256,
+            adapter_sha256=adapter_sha256 or None, base=base_pin,
+        )
+        if isinstance(calibration, RoutedCalibrationV2):
+            raise ValueError("router-calibration/v2 requires the per-route adapters directory")
+    routed = isinstance(calibration, ROUTED_CALIBRATIONS)
+    if isinstance(calibration, RoutedCalibration) and adapter is None:
         raise ValueError("routed calibration requires the screen_geometry adapter")
     snapshot = Path(snapshot_download(BASE_REPO, revision=BASE_REVISION, cache_dir=model_cache,
                                       local_files_only=offline))
@@ -545,20 +734,53 @@ def load_predictor(*, calibration_path: str | Path, model_name: str,
         transformers, "AutoModelForImageTextToText")
     model = auto_model.from_pretrained(str(snapshot), torch_dtype=torch.bfloat16,
                                        device_map=device, trust_remote_code=False, attn_implementation="sdpa")
-    if adapter is not None:
-        from peft import PeftModel
+    route_record = None
+    if route_dirs is not None:
+        import tempfile
 
-        loaded = PeftModel.from_pretrained(
-            model, str(adapter), **({"adapter_name": router.SCREEN_GEOMETRY} if routed else {})
+        from open_decisions.image_jev.release.adapters import attach_route_adapters
+
+        model, adapter_context, route_record = attach_route_adapters(
+            model, default_dir=route_dirs[router.DEFAULT],
+            screen_dir=route_dirs[router.SCREEN_GEOMETRY], form=serving_form,
+            work_dir=adapter_work_dir or tempfile.mkdtemp(prefix="image-hopper-adapters-"),
         )
-        model = loaded if routed else loaded.merge_and_unload()
-    model = model.eval()
-    adapter_context = AdapterSwitch(model) if routed else None
+        model = model.eval()
+    else:
+        if adapter is not None:
+            from peft import PeftModel
+
+            loaded = PeftModel.from_pretrained(
+                model, str(adapter), **({"adapter_name": router.SCREEN_GEOMETRY} if routed else {})
+            )
+            model = loaded if routed else loaded.merge_and_unload()
+        model = model.eval()
+        adapter_context = AdapterSwitch(model) if routed else None
+    from open_decisions.image_jev.release import fastpath
+
+    options = fastpath.parse_options(serving_options)
+    inference_context, logits_fn, readout_fn, serving_record = torch.inference_mode, None, None, None
+    token_cap = token_cap_default = None
+    if options:
+        if route_dirs is not None:
+            raise ValueError("serving options are implemented for the single-adapter systems")
+        serving = fastpath.apply_serving_options(
+            model, processor, options, device=device, routed=routed,
+            adapter_name=router.SCREEN_GEOMETRY if routed else None,
+            adapter_context=adapter_context, inference_context=torch.inference_mode,
+            log=lambda text: print(text, file=sys.stderr))
+        model, processor = serving.model, serving.processor
+        adapter_context, inference_context = serving.adapter_context, serving.inference_context
+        logits_fn, readout_fn, serving_record = serving.logits_fn, serving.readout_fn, serving.record
+        token_cap = serving.image_token_cap
+        token_cap_default = serving.image_token_cap_default
     predictor = Predictor(model, processor, calibration, model_name=model_name,
                           context_policy=context_policy, max_input_tokens=max_input_tokens,
-                          inference_context=torch.inference_mode,
+                          inference_context=inference_context,
                           adapter_context=adapter_context,
-                          synchronize=(torch.cuda.synchronize if str(device).startswith("cuda") else None))
+                          synchronize=(torch.cuda.synchronize if str(device).startswith("cuda") else None),
+                          logits_fn=logits_fn, readout_fn=readout_fn, image_token_cap=token_cap,
+                          image_token_cap_default=token_cap_default)
     provenance = {
         "base_repo": BASE_REPO, "base_revision": BASE_REVISION,
         "base_files_verified": verified,
@@ -570,17 +792,33 @@ def load_predictor(*, calibration_path: str | Path, model_name: str,
         "system_kind": "routed" if routed else "single-route",
         "router_rules_version": router.RULES_VERSION if routed else None,
         "router_rules_sha256": router.RULES_SHA256 if routed else None,
-        "adapter_switching": "PEFT layer enable/disable on route transition" if routed else None,
+        "adapter_switching": (
+            route_record["adapter_switching"] if route_record is not None
+            else "PEFT layer enable/disable on route transition" if routed else None
+        ),
+        "adapters_by_route": (
+            None if route_dirs is None else {
+                name: {"path": str(path), "sha256": route_hashes[name]}
+                for name, path in route_dirs.items()
+            }
+        ),
+        "serving_form": None if route_record is None else route_record["serving_form"],
+        "difference_adapter": (
+            None if route_record is None else route_record.get("difference_adapter")
+        ),
         "precision": "bfloat16", "attention": "sdpa", "processor_use_fast": True, "scorer": "one-prefill-option-letter",
         "context_policy": context_policy, "max_input_tokens": max_input_tokens,
         "torch_version": torch.__version__, "transformers_version": transformers.__version__,
         "python_version": platform.python_version(),
     }
+    if options:  # absent unless enabled: the default provenance is unchanged
+        provenance["serving_options"] = serving_record
     return predictor, provenance
 
 
 __all__ = [
-    "BASE_REPO", "BASE_REVISION", "Calibration", "RoutedCalibration", "Predictor", "Question", "RequestError",
+    "BASE_REPO", "BASE_REVISION", "Calibration", "ROUTED_CALIBRATIONS", "RoutedCalibration",
+    "RoutedCalibrationV2", "Predictor", "Question", "RequestError",
     "TYPE_BUCKET_BY_OPTION_COUNT", "check_fast_path", "load_predictor", "parse_request",
     "serving_calibration_from_artifact", "tree_sha256", "verify_snapshot",
 ]

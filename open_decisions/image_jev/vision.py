@@ -35,6 +35,12 @@ MIN_PIXELS = 65_536
 MAX_PIXELS = 16_777_216
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_IMAGE_PIXELS = 20_000_000
+# Optional native-route image-token cap (a serving option, off by default).  The cap lowers the
+# processor's own max pixels to ``cap * FACTOR**2`` so its smart resize keeps at most ``cap``
+# merged image tokens per image.  Below 256 tokens the processor's minimum-area rule and its
+# one-factor edge clamp can exceed the cap for extreme aspect ratios, so smaller caps are refused.
+MIN_IMAGE_TOKEN_CAP = 256
+MAX_IMAGE_TOKEN_CAP = MAX_PIXELS // (FACTOR * FACTOR)
 BUDGET_VERSION = "b1"
 BUDGETS = MappingProxyType({"photo": 160, "scene": 224, "document": 384, "dense": 768})
 ROUTING_VERSION = "image-jev/content-routing/v1"
@@ -126,6 +132,29 @@ def image_tokens(height: int, width: int, factor: int = FACTOR) -> int:
     """Merged image-token count after the model processor's normal smart resize."""
     resized_h, resized_w = smart_resize(height, width, factor=factor)
     return (resized_h // factor) * (resized_w // factor)
+
+
+def validate_image_token_cap(value: Any) -> int:
+    """An explicit native-route image-token cap: an integer in [256, 16384]."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"image_token_cap must be an integer, got {value!r}")
+    if not MIN_IMAGE_TOKEN_CAP <= value <= MAX_IMAGE_TOKEN_CAP:
+        raise ValueError(f"image_token_cap must be between {MIN_IMAGE_TOKEN_CAP} and "
+                         f"{MAX_IMAGE_TOKEN_CAP}, got {value}")
+    return value
+
+
+def native_max_pixels(image_token_cap: int | None = None) -> int:
+    """The processor max pixels of the native route: its default, or ``cap * FACTOR**2``."""
+    if image_token_cap is None:
+        return MAX_PIXELS
+    return validate_image_token_cap(image_token_cap) * FACTOR * FACTOR
+
+
+def native_image_tokens(height: int, width: int, image_token_cap: int | None = None) -> int:
+    """Merged image tokens of one native-route image, with the optional cap applied."""
+    resized_h, resized_w = smart_resize(height, width, max_pixels=native_max_pixels(image_token_cap))
+    return (resized_h // FACTOR) * (resized_w // FACTOR)
 
 
 def budget_pixels(content_class: str) -> int:
@@ -325,12 +354,40 @@ def _output_field(output, name: str):
     return value
 
 
+def _processor_min_pixels(processor) -> int:
+    """The processor's own minimum area (kept unchanged when a token cap lowers the maximum)."""
+    image_processor = getattr(processor, "image_processor", None)
+    size = getattr(image_processor, "size", None)
+    for getter in (lambda: size["shortest_edge"], lambda: getattr(size, "shortest_edge"),
+                   lambda: getattr(image_processor, "min_pixels")):
+        try:
+            value = getter()
+        except (KeyError, TypeError, AttributeError):
+            continue
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+    return MIN_PIXELS
+
+
+def _grid_rows(grid) -> list[list[int]]:
+    rows = grid.tolist() if hasattr(grid, "tolist") else [list(row) for row in grid]
+    return [[int(value) for value in row] for row in rows]
+
+
 def _prepare(example: dict, processor, *, image_route: str,
              content_class: str | None = None, loaded_images=None, cache=None,
-             timer=None, device=None) -> PreparedInput:
-    """Prepare one decision after validating an explicit registered image route."""
+             timer=None, device=None, image_token_cap: int | None = None) -> PreparedInput:
+    """Prepare one decision after validating an explicit registered image route.
+
+    ``image_token_cap`` (native route only; default None = the processor's own maximum) lowers
+    the processor's max pixels so every image keeps at most that many merged image tokens.
+    """
     if image_route not in IMAGE_ROUTES:
         raise ValueError(f"image_route must be one of {IMAGE_ROUTES}, got {image_route!r}")
+    if image_token_cap is not None:
+        if image_route != "native":
+            raise ValueError("image_token_cap applies to the native image route only")
+        image_token_cap = validate_image_token_cap(image_token_cap)
     try:
         question, options = example["question"], example["options"]
     except (KeyError, TypeError) as error:
@@ -366,6 +423,11 @@ def _prepare(example: dict, processor, *, image_route: str,
                     "new_size": ready.size,
                     "image_tokens": image_tokens(ready.height, ready.width),
                 }
+                if image_token_cap is not None:
+                    # The processor, not this function, resizes; new_size stays the decoded size.
+                    record["image_token_cap"] = image_token_cap
+                    record["image_tokens"] = native_image_tokens(ready.height, ready.width,
+                                                                 image_token_cap)
             ready_images.append(ready)
             records.append(record)
 
@@ -390,12 +452,28 @@ def _prepare(example: dict, processor, *, image_route: str,
         getattr(image_processor, "backend", None) == "torch" or
         "Fast" in type(image_processor).__name__ or
         any(base.__name__ == "BaseImageProcessorFast" for base in type(image_processor).__mro__))
-    kwargs = {"images_kwargs": {"device": device}} if fast and device is not None else {}
+    images_kwargs = {"device": device} if fast and device is not None else {}
+    if image_token_cap is not None:
+        # Every spelling the processor's kwargs accept, all consistent: min unchanged, max capped.
+        min_pixels, max_pixels = _processor_min_pixels(processor), native_max_pixels(image_token_cap)
+        images_kwargs.update(size={"shortest_edge": min_pixels, "longest_edge": max_pixels},
+                             min_pixels=min_pixels, max_pixels=max_pixels)
+    kwargs = {"images_kwargs": images_kwargs} if images_kwargs else {}
     if cache is not None:
         cache.tokenizer.timer = timer
     token_before = timer.seconds["tokenise_chat_template"] if timer.seconds is not None else 0.0
     with timer.phase("processor_preprocess"):
         output = processor(text=[prompt], images=ready_images, padding=True, return_tensors="pt", **kwargs)
+        if image_token_cap is not None:
+            # Fail closed if the processor ignored the cap (a library change would do that).
+            merge = int(getattr(getattr(processor, "image_processor", None), "merge_size", 2) or 2)
+            served = [t * h * w // (merge * merge)
+                      for t, h, w in _grid_rows(_output_field(output, "image_grid_thw"))]
+            if len(served) != len(records) or any(tokens > image_token_cap for tokens in served):
+                raise RuntimeError(f"processor returned {served} image tokens for an "
+                                   f"{image_token_cap}-token cap")
+            for record, tokens in zip(records, served):
+                record["processor_image_tokens"] = tokens
     if timer.seconds is not None:
         timer.seconds["processor_preprocess"] -= timer.seconds["tokenise_chat_template"] - token_before
     return PreparedInput(input_ids=_output_field(output, "input_ids"),
@@ -413,7 +491,10 @@ def prepare(example: dict, processor, content_class: str | None = None) -> Prepa
 
 
 def prepare_native(example: dict, processor, **kwargs) -> PreparedInput:
-    """Prepare processor-default full-resolution images without budget resizing."""
+    """Prepare processor-default full-resolution images without budget resizing.
+
+    ``image_token_cap=N`` (optional, default off) lowers only the processor's max pixels.
+    """
     return _prepare(example, processor, image_route="native", **kwargs)
 
 

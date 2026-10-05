@@ -74,6 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--calibration", default="calibration.json")
     parser.add_argument("--adapter", default=None,
                         help="optional local adapter directory; calibration must bind its tree hash")
+    parser.add_argument("--adapters", default=None,
+                        help="router v3: directory with default/ and screen_geometry/ adapters; "
+                             "calibration must be router-calibration/v2 bound to both")
+    parser.add_argument("--serving-form", choices=("U", "M"), default="U",
+                        help="router v3: U keeps both adapters attached (set_adapter on route "
+                             "change); M merges default and serves an exact difference adapter")
     parser.add_argument("--base-hashes", default="base-model-files.json",
                         help="hash listing of the pinned base snapshot; '' skips the check")
     parser.add_argument("--model-cache", default=None, help="Hugging Face cache directory")
@@ -87,6 +93,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-input-tokens", type=int, default=None,
                         help="refuse (HTTP 400) requests above this many processed tokens")
     parser.add_argument("--allow-slow-path", action="store_true")
+    parser.add_argument("--serving-options", default="",
+                        help="comma-separated release.fastpath options (default: none, the "
+                             "published path); recorded in /health")
     parser.add_argument("--phase-timing", action="store_true",
                         help="diagnostic synchronized phase_seconds in responses; default off")
     return parser
@@ -98,10 +107,10 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     predictor, provenance = load_predictor(
         calibration_path=args.calibration, model_name=args.name, model_cache=args.model_cache,
-        adapter_path=args.adapter,
+        adapter_path=args.adapter, adapters_path=args.adapters, serving_form=args.serving_form,
         offline=args.offline, base_hashes_path=args.base_hashes or None, device=args.device,
         context_policy=args.context_policy, max_input_tokens=args.max_input_tokens,
-        allow_slow_path=args.allow_slow_path,
+        allow_slow_path=args.allow_slow_path, serving_options=args.serving_options or None,
     )
     health = {"model": args.name, **provenance}
     print(json.dumps(health, indent=2, sort_keys=True), file=sys.stderr)

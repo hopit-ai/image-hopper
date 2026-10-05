@@ -9,4 +9,4 @@ COPY requirements.lock requirements.lock.sha256 /app/
 RUN sha256sum -c requirements.lock.sha256 && python -m pip install --no-cache-dir -r requirements.lock
 COPY . /app
 EXPOSE 8080
-ENTRYPOINT ["python", "-m", "open_decisions.image_jev.release.server", "--host", "0.0.0.0", "--port", "8080", "--offline", "--adapter", "adapter"]
+ENTRYPOINT ["python", "-m", "open_decisions.image_jev.release.server", "--host", "0.0.0.0", "--port", "8080", "--offline", "--adapter", "adapter", "--serving-options", "lean_lora,uint8_pixels,device_readout,image_token_cap_default=768"]

@@ -127,7 +127,7 @@ def _exchange(handler_type, method: str, path: str, body=None) -> tuple[int, dic
 def run(calibration_path: str | Path) -> dict:
     from open_decisions.image_jev import router
     from open_decisions.image_jev.release.predictor import (
-        Predictor, RoutedCalibration, serving_calibration_from_artifact,
+        ROUTED_CALIBRATIONS, Predictor, serving_calibration_from_artifact,
     )
     from open_decisions.image_jev.release.server import handler
 
@@ -139,6 +139,12 @@ def run(calibration_path: str | Path) -> dict:
     )
     model = _fake_model()
     predictor = Predictor(model, FakeProcessor(), calibration, model_name="smoke")
+
+    def temperature(n_options: int) -> float:
+        # Every smoke question routes to ``default`` (no screen/geometry cues).
+        if isinstance(calibration, ROUTED_CALIBRATIONS):
+            return calibration.temperature(n_options, router.DEFAULT)
+        return calibration.temperature(n_options)
     handler_type = handler(predictor, {"model": "smoke"})
 
     def post(body) -> tuple[int, dict]:
@@ -172,19 +178,13 @@ def run(calibration_path: str | Path) -> dict:
         four = answers["four"]["probabilities"]
         assert list(four) == ["top", "middle", "bottom", "none"]
         assert answers["four"]["choice"] == "top"
-        four_temperature = (
-            calibration.temperature(4, router.DEFAULT)
-            if isinstance(calibration, RoutedCalibration) else calibration.temperature(4)
-        )
+        four_temperature = temperature(4)
         for name, got, want in zip(four, four.values(), _expected(4, four_temperature)):
             assert abs(got - want) < 1e-6, (name, got, want)
         three = answers["three"]["probabilities"]
-        for got, want in zip(three.values(), _expected(3, calibration.global_temperature)):
+        for got, want in zip(three.values(), _expected(3, temperature(3))):
             assert abs(got - want) < 1e-6
-        binary_temperature = (
-            calibration.temperature(2, router.DEFAULT)
-            if isinstance(calibration, RoutedCalibration) else calibration.temperature(2)
-        )
+        binary_temperature = temperature(2)
         want_yes = _expected(2, binary_temperature)[0]
         assert abs(answers["binary"]["noul"] - want_yes) < 1e-6
         assert body["usage"]["output_tokens"] == 0 and body["usage"]["input_tokens"] > 0

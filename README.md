@@ -24,7 +24,8 @@ in one forward pass and without generating text. It is built on `Qwen/Qwen3.5-9B
   for those letters at the last prompt position.
 - **Calibration.** Logits are divided by a temperature chosen by route and answer type (fitted by maximum likelihood
   with shrinkage toward a global temperature). Calibration never changes which option ranks first.
-- **Images** use the base processor's native resolution route; up to four images per request.
+- **Images** use the base processor's native resolution route; on the default route each image is capped at 768
+  image tokens (screen/geometry questions keep full resolution); up to four images per request.
 
 | Route / answer type | Temperature |
 |---|---:|
@@ -58,10 +59,16 @@ checked against the benchmark's reference images for near-duplicates.
 The default-route temperatures were fitted on a held-out calibration split of our own data; the screen/geometry
 temperatures on held-out real screenshots and geometry diagrams that were never used for training.
 
+## Serving
+
+The Dockerfile starts the server with `--serving-options lean_lora,uint8_pixels,device_readout,image_token_cap_default=768`.
+The first three options change only how the computation runs, not the outputs; the image cap on the default route
+reduces cost per decision.
+
 ## Usage
 
     pip install -r requirements.txt
-    python -m open_decisions.image_jev.release.server --offline --adapter adapter --port 8080
+    python -m open_decisions.image_jev.release.server --offline --adapter adapter --port 8080 --serving-options "lean_lora,uint8_pixels,device_readout,image_token_cap_default=768"
 
 `POST /v1/systemone`:
 

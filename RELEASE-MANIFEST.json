@@ -15,14 +15,14 @@
   },
   "code": {
     "dirty": false,
-    "git_commit": "b94f0c4507c2463f6569974cfbb36a05ccdbb764"
+    "git_commit": "78124a4fcb2123b8f5b3abb08d5751155c7d44be"
   },
   "files": {
     "BASE-MODEL-LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-    "Dockerfile": "904c4630d2b50f577e3e6cf0e9d71f25c06e4fb64ef1a41238b299ba0c8a5d7a",
+    "Dockerfile": "46c5a925edee39410700d801ec0156904e8b5808373d5c77a3600f45bce29691",
     "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
     "NOTICE": "1d5e63ea05ed3c846593f1f4185b4355a25b2b25682bccac24995e094141b6c7",
-    "README.md": "2b1b313bcf80dff7aaeea5904c82d3adec8e0c8079a42a28093f7538c794b8b9",
+    "README.md": "8486ae6e58abfeeed8aa515bb87277c88a36ba1ee7ea14c139cc9614a4f8481a",
     "adapter/README.md": "bb29528044c9409e183ce924e4ea6f29f2b705d749287781b8ff2777b5209a55",
     "adapter/adapter_config.json": "4f6e55c1d151070a6e8444feff44bdcfbe4b87e14c3fde855f69159066162487",
     "adapter/adapter_model.safetensors": "6201fcb1c08144e465a03fd6f5355c4394b3bffaad659440fa64063dd4f71509",
@@ -31,12 +31,13 @@
     "open_decisions/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "open_decisions/image_jev/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "open_decisions/image_jev/release/__init__.py": "4a29d6b23b6021c0cc27d3fa5163ebbede7ab531b1a13814dfddf1fedcd71af4",
-    "open_decisions/image_jev/release/predictor.py": "b4a469714f2cfb5b6cf8551975dc76e2b6139b6dae61b1ebcc4f31335dddb407",
-    "open_decisions/image_jev/release/server.py": "3815ab07ca929b9e226b0a73521b2dc6cc6c426da1d0d8942ab9e372163f3ca9",
-    "open_decisions/image_jev/release/smoke.py": "80c6ed250089724a332ea0341ad6324757b19a5407d219f539d28bcdf7864ea4",
+    "open_decisions/image_jev/release/fastpath.py": "4ad3e5e869e80393b30fd1fd90a377cae244a25ceca249c8aeb5eb0d44d61236",
+    "open_decisions/image_jev/release/predictor.py": "bbc178c08fb2b9a92684d759968b8792391a87ff21b804c3b723c68af61e76a3",
+    "open_decisions/image_jev/release/server.py": "bb994fe1abe7d29a425c4357eb80973565d6105130307f04597e8803ee97c168",
+    "open_decisions/image_jev/release/smoke.py": "773c339d4393d12953264918bfd3decfb46a67cee06feb2e61d29611c0313e3b",
     "open_decisions/image_jev/router.py": "e99db6dde898e7f7be4babcec2f4e545eedff51b04db8c7fe98e47e884a27c47",
     "open_decisions/image_jev/speed.py": "5671a56aa16d4647dca8f3c360e83f98747641d7722ae184110806375448c5cb",
-    "open_decisions/image_jev/vision.py": "f9e988cae5184b09b0ebacec7f9baeb3db06e971862c18229dea1ee5034e2be2",
+    "open_decisions/image_jev/vision.py": "de4ed892c0513ec86f954514476560cf9b20b7dd1d0e0afca548fcdf576aa882",
     "open_decisions/scoring/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "open_decisions/scoring/prompt.py": "131916c014979500e5d2daceb94817a8942de8148966d3309c8ecbc8547027ee",
     "requirements.lock": "974e3a19773d67b4de84842ffa4a3a537e2886240cdfb97d94216159804aa7e2",
@@ -44,11 +45,12 @@
     "requirements.txt": "321bb81a1bd43b4858cf724d22944ac3e5e93504a9bf231be88b6752b437a63c"
   },
   "image_route": "native",
-  "manifest_sha256": "1403eee576ec886cf6c3bcd2dbb02761fd9cd9200af118d2fff05da6eb4ecbd3",
+  "manifest_sha256": "be3f472213dffc9678155bdd91480bb87f63edd7bebcb8737c960646a1ed23ff",
   "measurement_artifact": null,
   "name": "HopitAI/image-hopper",
   "scorer": "one-prefill-option-letter",
-  "status": "owner-review",
+  "serving_options": "lean_lora,uint8_pixels,device_readout,image_token_cap_default=768",
+  "status": "DRAFT - not published; public text needs owner approval",
   "system_kind": "routed",
   "version": "image-jev-release/v1"
 }
