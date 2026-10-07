@@ -22,7 +22,7 @@
     "Dockerfile": "46c5a925edee39410700d801ec0156904e8b5808373d5c77a3600f45bce29691",
     "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
     "NOTICE": "1d5e63ea05ed3c846593f1f4185b4355a25b2b25682bccac24995e094141b6c7",
-    "README.md": "8486ae6e58abfeeed8aa515bb87277c88a36ba1ee7ea14c139cc9614a4f8481a",
+    "README.md": "3188b07ca437ed41353fbf6b6aa34489e4529488ee778f97e280c7d0ca865b6b",
     "adapter/README.md": "bb29528044c9409e183ce924e4ea6f29f2b705d749287781b8ff2777b5209a55",
     "adapter/adapter_config.json": "4f6e55c1d151070a6e8444feff44bdcfbe4b87e14c3fde855f69159066162487",
     "adapter/adapter_model.safetensors": "6201fcb1c08144e465a03fd6f5355c4394b3bffaad659440fa64063dd4f71509",
@@ -45,7 +45,7 @@
     "requirements.txt": "321bb81a1bd43b4858cf724d22944ac3e5e93504a9bf231be88b6752b437a63c"
   },
   "image_route": "native",
-  "manifest_sha256": "be3f472213dffc9678155bdd91480bb87f63edd7bebcb8737c960646a1ed23ff",
+  "manifest_sha256": "28c2f289d059f513019c88c64187820301228c05374b23a7f5d5837743a2d703",
   "measurement_artifact": null,
   "name": "HopitAI/image-hopper",
   "scorer": "one-prefill-option-letter",

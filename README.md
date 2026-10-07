@@ -81,11 +81,18 @@ per option, a `noul` answer holds P(yes).
 
 ## Evaluation
 
-Image JevBench results will be added here once the benchmark maintainer publishes them.
+- **[Image JevBench](https://benchmarkheaven.com/image-jev-bench) v0.3.0** (6 Oct 2026): composite 15.3, #16 of 44;
+  Capability 51.7 (Intelligence 32, Calibration 71); measured cost $0.077 per 1,000 decisions, above the Jev-class cost
+  limit. v0.3.0's sealed draw includes rating-scale (`score`) questions, which this release does not answer (see
+  limitations).
+- **[Jev Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index)**, vision track: scoring
+  requested ([discussion #50](https://huggingface.co/spaces/multimodalart/jev-decision-index/discussions/50)); results
+  will be added when published.
 
 ## Intended use and limitations
 
-For research and evaluation of image-grounded decisions where callers supply the options. Not a safety system or a
+For research and evaluation of image-grounded decisions where callers supply the options. Answers `choice` and `noul`
+questions only; `score` (rating-scale) questions are rejected. Not a safety system or a
 substitute for human review in high-impact decisions. Weak at dense counting; the adapter route is specialised for
 screens and geometry; probabilities cover only the supplied options (no abstain answer); calibration reflects our
 data mix and may transfer imperfectly; evaluated on English questions with thinking mode off. Native-resolution cost
